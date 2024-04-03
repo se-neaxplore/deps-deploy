@@ -59,6 +59,17 @@
          :password decoded-pw
          :_server server}}))
 
+(defn server-credentials-no-pw
+  "Returns a map from server id -> server settings including decoded password and ^Server instance."
+  [server]
+  (let [id (.getId server)
+        username (.getUsername server)
+        decoded-pw  (.getPassword server)]
+    {id {:id id
+         :username username
+         :password decoded-pw
+         :_server server}}))
+
 (defn servers-with-passwords
   "Decodes the passwords from servers.
    Returns a map from server id -> server settings (including credentials)."
@@ -70,6 +81,15 @@
          plain-master-pw (decode-password encoded-master-pw DefaultSecDispatcher/SYSTEM_PROPERTY_SEC_LOCATION)
          servers (.getServers settings)]
      (into {} (map (partial server-credentials plain-master-pw) servers)))))
+
+(defn servers-with-passwords-no-pw
+  "Decodes the passwords from servers.
+   Returns a map from server id -> server settings (including credentials)."
+  ([]
+   (servers-with-passwords-no-pw (read-settings)))
+  ([^Settings settings]
+   (let [servers (.getServers settings)]
+     (into {} (map server-credentials-no-pw servers)))))
 
 (defn active-profiles
   "Map of active profile name to ^org.apache.maven.settings.Profile instance."
@@ -107,6 +127,18 @@
          active-repos (active-repositories settings)]
      (merge-with merge servers-with-pw active-repos))))
 
+
+(defn deps-repositories-no-pw
+  "Returns a map of repo id -> repository settings for easy consumption by deps-deploy.
+   Repositories are read from settings.xml.
+   Passwords for each server are decoded and added to each repo."
+  ([]
+   (deps-repositories-no-pw (read-settings)))
+  ([settings]
+   (let [servers-with-pw (servers-with-passwords-no-pw settings)
+         active-repos (active-repositories settings)]
+     (merge-with merge servers-with-pw active-repos))))
+
 (defn deps-repo-by-id
   "Return a map from repository id to repository settings.
    Result can be passed to deps-deploy/deploy fn:
@@ -118,7 +150,20 @@
   ([^String repo-id ^Settings settings ^SettingsSecurity settings-security]
    {repo-id (get (deps-repositories settings settings-security) repo-id)}))
 
+(defn deps-repo-by-id-plaintext
+  "Return a map from repository id to repository settings.
+   Result can be passed to deps-deploy/deploy fn:
+   {repo-id (get (desp-repositories s ss) repo-id)}
+
+   If not provided, will read $HOME/.m2/settings.xml and $HOME/.m2/settings-security.xml."
+  ([^String repo-id]
+   (deps-repo-by-id-plaintext repo-id (read-settings)))
+  ([^String repo-id ^Settings settings]
+   {repo-id (get (deps-repositories-no-pw settings) repo-id)}))
+
 (comment
+
+  (deps-repo-by-id-plaintext "github")
 
   (let [settings (read-settings (io/as-file default-settings-path))
         settings-security (read-settings-security (io/as-file default-settings-security-path))
@@ -126,7 +171,7 @@
         plain-master-pw (decode-password encoded-master-pw DefaultSecDispatcher/SYSTEM_PROPERTY_SEC_LOCATION)
         servers (.getServers settings)]
     (doseq [s servers]
-      (let [plain-pw (decode-password (.getPassword s) plain-master-pw)]
+      (let [plain-pw  (.getPassword s) ]
         (println (str/join (repeat 20 "-")))
         (println "Credentials for server" (.getId s) "are")
         (println "Username :" (.getUsername s))
